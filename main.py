@@ -1,6 +1,6 @@
 import streamlit as st
 import boto3
-from datetime import datetime
+from datetime import datetime, UTC
 import pandas as pd
 
 # ============================
@@ -9,7 +9,7 @@ import pandas as pd
 region = 'ap-south-1'
 bucket_name = 'attendance-student-photos-krish'
 collection_id = 'attendance-collection'
-table_name = 'AttendanceLogs'  # ✅ new table with StudentName + Timestamp keys
+table_name = 'AttendanceLogs'  # New table (StudentName + Timestamp as keys)
 
 rekognition = boto3.client('rekognition', region_name=region)
 s3 = boto3.client('s3', region_name=region)
@@ -86,9 +86,11 @@ elif menu == "Mark Attendance":
             match = response['FaceMatches'][0]
             student_name = match['Face']['ExternalImageId']
             similarity = match['Similarity']
-            timestamp = datetime.utcnow().isoformat()
+            
+            # ✅ Use timezone-aware UTC timestamp
+            timestamp = datetime.now(UTC).isoformat()
 
-            # ✅ Each attendance is a unique record (no overwrite)
+            # ✅ Add new record each time (don’t overwrite)
             table.put_item(Item={
                 'StudentName': student_name,
                 'Timestamp': timestamp
@@ -115,7 +117,8 @@ elif menu == "View Attendance Logs":
         else:
             df = pd.DataFrame(items)
             df = df.sort_values(by="Timestamp", ascending=False)
-            st.dataframe(df)
+
+            st.dataframe(df, use_container_width=True)
 
             # Option to download CSV
             csv = df.to_csv(index=False).encode('utf-8')
