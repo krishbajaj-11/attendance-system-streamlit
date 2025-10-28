@@ -2,34 +2,35 @@ import streamlit as st
 import boto3
 from datetime import datetime
 import pandas as pd
-import io
 
-# AWS setup
+# ============================
+# AWS Configuration
+# ============================
 region = 'ap-south-1'
 bucket_name = 'attendance-student-photos-krish'
 collection_id = 'attendance-collection'
-table_name = 'AttendanceTable'
+table_name = 'AttendanceLogs'  # ✅ new table with StudentName + Timestamp keys
 
 rekognition = boto3.client('rekognition', region_name=region)
 s3 = boto3.client('s3', region_name=region)
 dynamodb = boto3.resource('dynamodb', region_name=region)
 table = dynamodb.Table(table_name)
 
-# Page title
+# ============================
+# Streamlit Page Config
+# ============================
 st.set_page_config(page_title="AWS Attendance System", page_icon="📸", layout="centered")
-
 st.title("📸 Smart Attendance System using AWS Rekognition")
 st.sidebar.title("🧭 Navigation")
 
-# Sidebar options
 menu = st.sidebar.radio("Select a feature", ["Register Face", "Mark Attendance", "View Attendance Logs"])
 
 # ============================
-# 1️⃣ Register Face Section
+# 1️⃣ Register Face
 # ============================
 if menu == "Register Face":
     st.header("🧑‍💼 Register New Face")
-    name = st.text_input("Enter student name (no spaces):")
+    name = st.text_input("Enter student name (no spaces):").strip()
 
     uploaded_file = st.file_uploader("Upload student's face image", type=["jpg", "jpeg", "png"])
 
@@ -37,22 +38,29 @@ if menu == "Register Face":
         with open(uploaded_file.name, "wb") as f:
             f.write(uploaded_file.getbuffer())
 
-        # Upload to S3
-        s3.upload_file(uploaded_file.name, bucket_name, uploaded_file.name)
-        st.info("✅ Uploaded to S3")
+        # Check if name already exists in collection
+        existing_faces = rekognition.list_faces(CollectionId=collection_id, MaxResults=1000)
+        already_registered = any(face['ExternalImageId'] == name for face in existing_faces['Faces'])
 
-        # Index face to Rekognition
-        response = rekognition.index_faces(
-            CollectionId=collection_id,
-            Image={'S3Object': {'Bucket': bucket_name, 'Name': uploaded_file.name}},
-            ExternalImageId=name,
-            DetectionAttributes=['DEFAULT']
-        )
-        st.success(f"✅ Face registered for: {name}")
-        st.json(response)
+        if already_registered:
+            st.warning(f"⚠️ Face for '{name}' is already registered. Skipping re-registration.")
+        else:
+            # Upload to S3
+            s3.upload_file(uploaded_file.name, bucket_name, uploaded_file.name)
+            st.info("✅ Uploaded to S3")
+
+            # Index face in Rekognition
+            response = rekognition.index_faces(
+                CollectionId=collection_id,
+                Image={'S3Object': {'Bucket': bucket_name, 'Name': uploaded_file.name}},
+                ExternalImageId=name,
+                DetectionAttributes=['DEFAULT']
+            )
+            st.success(f"✅ Face registered for: {name}")
+            st.json(response)
 
 # ============================
-# 2️⃣ Mark Attendance Section
+# 2️⃣ Mark Attendance
 # ============================
 elif menu == "Mark Attendance":
     st.header("📸 Mark Attendance")
@@ -62,11 +70,11 @@ elif menu == "Mark Attendance":
         with open(test_image.name, "wb") as f:
             f.write(test_image.getbuffer())
 
-        # Upload image to S3
+        # Upload to S3
         s3.upload_file(test_image.name, bucket_name, test_image.name)
-        st.info("Image uploaded to S3 ✅")
+        st.info("✅ Image uploaded to S3")
 
-        # Search for match in Rekognition
+        # Search for matching face
         response = rekognition.search_faces_by_image(
             CollectionId=collection_id,
             Image={'S3Object': {'Bucket': bucket_name, 'Name': test_image.name}},
@@ -80,7 +88,7 @@ elif menu == "Mark Attendance":
             similarity = match['Similarity']
             timestamp = datetime.utcnow().isoformat()
 
-            # Log to DynamoDB
+            # ✅ Each attendance is a unique record (no overwrite)
             table.put_item(Item={
                 'StudentName': student_name,
                 'Timestamp': timestamp
@@ -90,7 +98,7 @@ elif menu == "Mark Attendance":
             st.write(f"🕒 Time: {timestamp}")
             st.write(f"🎯 Match confidence: {similarity:.2f}%")
         else:
-            st.error("❌ No matching face found.")
+            st.error("❌ No matching face found. Try again with a clearer image.")
 
 # ============================
 # 3️⃣ View Attendance Logs
@@ -109,8 +117,13 @@ elif menu == "View Attendance Logs":
             df = df.sort_values(by="Timestamp", ascending=False)
             st.dataframe(df)
 
-            # Option to download logs
+            # Option to download CSV
             csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button("⬇️ Download as CSV", data=csv, file_name="attendance_logs.csv", mime="text/csv")
+            st.download_button(
+                "⬇️ Download as CSV",
+                data=csv,
+                file_name="attendance_logs.csv",
+                mime="text/csv"
+            )
     except Exception as e:
         st.error(f"Error fetching logs: {e}")
