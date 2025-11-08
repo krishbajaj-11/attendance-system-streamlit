@@ -7,7 +7,7 @@ import pandas as pd
 # AWS Configuration
 # ============================
 region = 'ap-south-1'
-bucket_name = 'attendance-student-photos-arpan'
+bucket_name = 'attendance-student-photos-krish'
 collection_id = 'attendance-collection'
 table_name = 'AttendanceLogs'  # New table (StudentName + Timestamp as keys)
 
